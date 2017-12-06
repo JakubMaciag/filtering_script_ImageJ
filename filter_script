@@ -1,0 +1,282 @@
+package plugins;
+
+import ij.*;
+import ij.process.*;
+import ij.plugin.filter.PlugInFilter;
+import static ij.plugin.filter.PlugInFilter.DOES_ALL;
+import java.util.*;
+
+public class Adaptive_Filters  implements PlugInFilter
+{
+    private ImagePlus imp;
+    private int type;
+    private int Mask=5;
+    private int SMax=Mask+6; 
+    private int width;
+    private int height;
+    private int Dim_kernel=Mask;
+    private double variableN=1;
+    private int variable=SMax;
+    
+    public int setup(String arg, ImagePlus imp) 
+  {
+      this.imp = imp;
+      return DOES_ALL;
+  }
+    
+    public void run(ImageProcessor ip) 
+    {
+       for (int i=0;i<2;i++)
+       {
+        type = imp.getType();
+        width=ip.getWidth();
+        height=ip.getHeight();
+        createImage(imp); 
+            
+        }
+    }
+ 
+  //zamiania wektora na tablice 2D
+    public int[][] arrayToTable(int[] input, int width, int height)
+    {
+        int[][] table = new int [width][height];
+        for(int i=0;i<width;++i)
+            for(int j=0;j<height;++j)
+	            table[i][j] = input[i+(j*width)];
+        return table;
+    }
+    
+    //zamiana tablicy 2D na wektor
+    public int[] tableToArray(int[][] table, int width, int height)
+    {
+        int [] array = new int [width*height];
+        for(int i=0;i<width;++i)
+            for(int j=0;j<height;++j)
+	            array[i+(j*width)] = table[i][j];
+        return array;
+    }
+    
+   //liczenie sredniej pod maska 
+    public double average(int[][] input, int k, int w, int h, int x, int y) 
+    {
+        double sum=0;
+        double number = 0;
+        for(int j=0;j<k;++j)
+        {
+            for(int i=0;i<k;++i)
+            {
+	            if(((x-1+i)>=0) && ((y-1+j)>=0) && ((x-1+i)<w) && ((y-1+j)<h))
+                {
+                    sum = sum+input[x-1+i][y-1+j];
+                    ++number;
+                }
+            }
+        }
+        if(number==0) 
+            return 0;
+        return (sum/number);
+    }
+        
+    //liczenie mediany pod maska
+    public int median(int[][] input, int k,int w, int h, int x, int y) 
+    {
+        int[] supp=new int[k*k];
+        int t=0;
+        int number = 0;
+        for(int j=0;j<k;++j)
+        {
+            for(int i=0;i<k;++i)
+            {
+	            if(((x-1+i)>=0) && ((y-1+j)>=0) && ((x-1+i)<w) && ((y-1+j)<h))
+                {
+                    supp[t]=input[x-1+i][y-1+j];
+                    t++;
+	                ++number;
+	            }
+            }
+        }
+        if(number==0) 
+            return 0;
+        Arrays.sort(supp);
+        return supp[((k*k-1)/2)];
+    }
+    
+    //szukanie maksimum pod maska
+    public int max(int[][] input, int k, int w, int h, int x, int y)
+    {
+        int[] supp=new int[k*k];
+        int t=0;
+        int number = 0;
+        for(int j=0;j<k;++j)
+        {
+            for(int i=0;i<k;++i)
+            {
+	            if(((x-1+i)>=0) && ((y-1+j)>=0) && ((x-1+i)<w) && ((y-1+j)<h))
+                {
+                    supp[t]=input[x-1+i][y-1+j];
+                    t++;
+	                ++number;
+	            }
+            }
+        }
+        if(number==0) 
+            return 0;
+        Arrays.sort(supp);
+        return supp[k*k-1];
+    }
+    
+    //szukanie minimum pod maska
+    public int min(int[][] input, int k,int w, int h, int x, int y) 
+    {
+        int[] supp=new int[k*k];
+        int t=0;
+        int number = 0;
+        for(int j=0;j<k;++j)
+        {
+            for(int i=0;i<k;++i)
+            {
+	            if(((x-1+i)>=0) && ((y-1+j)>=0) && ((x-1+i)<w) && ((y-1+j)<h))
+                {
+                    supp[t]=input[x-1+i][y-1+j];
+                    t++;
+	                ++number;
+	            }
+            }
+        }
+        if(number==0) 
+            return 0;
+        Arrays.sort(supp);
+        return supp[0];
+    }
+   
+    //zaimplementowana logika filtru adaptacyjnego 
+    public int[][] ApplyAdaptiveMedianFilter(int[][] input, int k,int width, int height)
+    {
+        int z_min;
+        int z_max;
+        int z_med;
+        int z;
+        
+        int [][] outputArrays = new int [width][height];
+        for(int j=0;j<height;++j)
+            for(int i=0;i<width;++i)
+            {
+                int dim=k;
+                int value=0;
+                while(dim<variable+1)
+                {  
+                    z_min=min(input,dim,width,height,i,j);
+                    z_max=max(input,dim,width,height,i,j);
+                    z_med=median(input,dim,width,height,i,j);
+                    z=input[i][j];
+                    int A1=z_med-z_min;
+                    int A2=z_med-z_max;
+                    if((A1>0)&&(A2<0))
+                    {  
+                        int B1=z-z_min;
+                        int B2=z-z_max;
+                        if((B1>0)&&(B2<0))
+                            value=z;
+                        else 
+                            value=z_med;
+                        break;
+                    }
+                    else
+                    {
+                        dim=dim+2;
+                        if(dim<=variable)
+                            continue;
+                        else 
+                        {
+                            value=z;
+                            break;
+                        }
+                    }
+                }
+                if(value<0)
+                    value=0;
+                if(value>255)
+                    value=255;
+                outputArrays[i][j] = value;
+            }
+        return outputArrays;
+    }
+   
+    //zamiana wartości w pikselu dla obrazu byte'owego
+    public byte[] applyTransform(byte[] pixels)
+    {
+        byte[] output=new byte[pixels.length];
+        int[] tmp=new int[pixels.length];
+        for (int i=0;i<pixels.length;i++)
+            tmp[i]= pixels[i]&0xff;
+        int[][] supp1;
+        int[][] supp2;
+        int[] supp3=new int[pixels.length];
+        
+            supp1=arrayToTable(tmp,width,height);
+            supp2=ApplyAdaptiveMedianFilter(supp1,Dim_kernel,width,height);
+            supp3=tableToArray(supp2,width,height);
+        
+        for(int j=0;j<supp3.length;j++)
+            output[j]=(byte)supp3[j];
+        return output;
+    }
+    
+    //zamiana wartości w pikselu dla obrazu RGB
+    public int[] applyTransform(int[] pixels)
+    {
+        int[] output=new int[pixels.length];
+        int[] output_red=new int[pixels.length];;
+        int[] output_green=new int[pixels.length];;
+        int[] output_blue=new int[pixels.length];;
+        int[] tmp_red=new int[pixels.length];
+        int[] tmp_green=new int[pixels.length];
+        int[] tmp_blue=new int[pixels.length];
+        for (int i=0;i<pixels.length;i++)
+        {
+            int c=pixels[i];
+            tmp_red[i]=(c&0xff0000)>>16;
+            tmp_green[i]=(c&0x00ff00)>>8;
+            tmp_blue[i]=c&0x0000ff;
+        }
+        int[][] supp1_red;
+        int[][] supp1_green;
+        int[][] supp1_blue;
+        int[][] supp2_red;
+        int[][] supp2_green;
+        int[][] supp2_blue;
+        
+            supp1_red=arrayToTable(tmp_red,width,height);
+            supp1_green=arrayToTable(tmp_green,width,height);
+            supp1_blue=arrayToTable(tmp_blue,width,height);
+            supp2_red=ApplyAdaptiveMedianFilter(supp1_red,Dim_kernel,width,height);
+            supp2_green=ApplyAdaptiveMedianFilter(supp1_green,Dim_kernel,width,height);
+            supp2_blue=ApplyAdaptiveMedianFilter(supp1_blue,Dim_kernel,width,height);
+            output_red=tableToArray(supp2_red,width,height);
+            output_green=tableToArray(supp2_green,width,height);
+            output_blue=tableToArray(supp2_blue,width,height);
+        
+        for(int j=0;j<output.length;j++)
+            output[j]=((output_red[j]&0xff)<<16)+((output_green[j]&0xff)<<8)+(output_blue[j]&0xff);
+        return output;
+    }
+  
+    //przygotowanie wektora dla obrazu RGBlub 8byte'owego
+    public void createImage(ImagePlus img)
+    {
+            if(type==ImagePlus.COLOR_RGB)
+            {
+                int[] processed_pixels = (int[])(img.getProcessor()).getPixels();
+                int[] output= applyTransform(processed_pixels);
+                for (int i=0; i<output.length; i++) 
+                processed_pixels[i]=output[i];
+            }
+            else
+            {
+                 byte[] processed_pixels = (byte[])(img.getProcessor()).getPixels();
+                byte[] output=applyTransform(processed_pixels);
+                for (int i=0; i<output.length; i++) 
+                processed_pixels[i]=output[i];
+            } 
+    }
+}
